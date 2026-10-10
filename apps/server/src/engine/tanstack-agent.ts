@@ -178,10 +178,12 @@ const omittedThreadToolResult = "Tool result could not be saved for this thread.
 export function textOnlyToolResult(event: BaseEvent): BaseEvent {
   if (event.type !== EventType.TOOL_CALL_RESULT) return event;
   const content = (event as { content?: unknown }).content;
-  if (typeof content !== "string" || !content.startsWith("[")) return event;
+  if (typeof content !== "string") return event;
+  const json = content.trimStart();
+  if (!json.startsWith("[")) return event;
   let parts: unknown;
   try {
-    parts = JSON.parse(content);
+    parts = JSON.parse(json);
   } catch {
     return { ...event, content: omittedThreadToolResult } as BaseEvent;
   }

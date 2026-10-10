@@ -19,6 +19,21 @@ test("malformed multimodal tool JSON is not stored verbatim in the thread", () =
   assert.ok(!(sanitized as { content?: string }).content?.includes("AAAA"));
 });
 
+test("leading whitespace does not bypass multimodal stripping", () => {
+  const content =
+    "  " +
+    JSON.stringify([
+      { type: "text", content: "Visible summary" },
+      {
+        type: "image",
+        source: { type: "data", value: "huge-binary", mimeType: "image/jpeg" },
+      },
+    ]);
+  const sanitized = textOnlyToolResult({ ...base, content });
+  assert.equal((sanitized as { content?: string }).content, "Visible summary");
+  assert.ok(!(sanitized as { content?: string }).content?.includes("huge-binary"));
+});
+
 test("valid multimodal tool results keep only text in the thread", () => {
   const content = JSON.stringify([
     { type: "text", content: "Visible summary" },
