@@ -54,6 +54,14 @@ test("structured JSON arrays that are not content parts stay on the thread", () 
   );
 });
 
+test("structured JSON arrays with unrelated type fields stay on the thread", () => {
+  const content = JSON.stringify([{ type: "success", message: "done" }]);
+  assert.equal(
+    (textOnlyToolResult({ ...base, content }) as { content?: string }).content,
+    content,
+  );
+});
+
 test("mixed arrays with a typed part object do not keep image data on the thread", () => {
   const imagePart = { type: "image", image: "A".repeat(200) };
   const content = `[1,2,${JSON.stringify(imagePart)}]`;

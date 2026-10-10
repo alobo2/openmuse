@@ -180,26 +180,27 @@ function looksLikeContentPartsJson(json: string) {
   return /^\[\s*\{/.test(json);
 }
 
-function partHasStringType(part: unknown) {
-  return (
-    typeof part === "object" &&
-    part !== null &&
-    typeof (part as { type?: unknown }).type === "string"
-  );
+/** Matches TanStack `ContentPart` modalities (see @tanstack/ai `CONTENT_PART_TYPES`). */
+const contentPartTypes = new Set(["text", "image", "audio", "video", "document"]);
+
+function partHasContentPartType(part: unknown) {
+  if (typeof part !== "object" || part === null) return false;
+  const type = (part as { type?: unknown }).type;
+  return typeof type === "string" && contentPartTypes.has(type);
 }
 
-/** True when the array is non-empty and every element is a `{ type }` object (TanStack part shape). */
+/** True when the array is non-empty and every element names a TanStack content-part modality. */
 function arrayLooksLikeContentParts(value: unknown) {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every((part) => partHasStringType(part))
+    value.every((part) => partHasContentPartType(part))
   );
 }
 
 /** Mixed arrays like `[1, {"type":"image",…}]` are still multimodal tool payloads. */
-function arrayContainsTypedPartObject(value: unknown) {
-  return Array.isArray(value) && value.some((part) => partHasStringType(part));
+function arrayContainsContentPartObject(value: unknown) {
+  return Array.isArray(value) && value.some((part) => partHasContentPartType(part));
 }
 
 export function textOnlyToolResult(event: BaseEvent): BaseEvent {
@@ -217,7 +218,7 @@ export function textOnlyToolResult(event: BaseEvent): BaseEvent {
       : event;
   }
   if (!isContentPartArray(parts)) {
-    return arrayLooksLikeContentParts(parts) || arrayContainsTypedPartObject(parts)
+    return arrayLooksLikeContentParts(parts) || arrayContainsContentPartObject(parts)
       ? ({ ...event, content: omittedThreadToolResult } as BaseEvent)
       : event;
   }
