@@ -14,6 +14,7 @@ import { calendarRangeSchema } from "../../../../packages/domain/src/index.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import { computerInstructions, computerTools } from "../computer-tools.ts";
 import type { Config } from "../config.ts";
+import { backgroundFailure } from "../log.ts";
 import { createJevAdapter, type JevAdapter } from "../jev/adapter.ts";
 import { JevService } from "../jev/service.ts";
 import { presentChoicesTool } from "../jev/tools.ts";
@@ -439,8 +440,9 @@ export class ConversationAgent extends AbstractAgent {
           const head = await jev.headSnapshot(this.owner, input.threadId);
           // A false result means another run already replaced the head; that newer state wins.
           if (head) await jev.expireIfUnchanged(this.owner, input.threadId, head, input.runId);
-        } catch {
+        } catch (error) {
           if (!cancelled) {
+            backgroundFailure("jev expire choices", error);
             subscriber.next({
               type: EventType.RUN_ERROR,
               message: "Could not update earlier choices. Please retry.",

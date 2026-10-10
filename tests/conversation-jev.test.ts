@@ -126,6 +126,30 @@ test("present_choices emits a complete panel and selection uses trusted stored l
   assert.equal(stored?.selectedId, "explore");
 });
 
+test("jev choice expiry failures are logged before the run error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const f = await fixture(t, [undefined]);
+  const original = JevService.prototype.headSnapshot;
+  JevService.prototype.headSnapshot = async () => {
+    throw new Error("jev head read failed");
+  };
+  t.after(() => {
+    JevService.prototype.headSnapshot = original;
+  });
+  const events = await lastValueFrom(f.conversation.run(input("Hello")).pipe(toArray()));
+  assert.equal(events.at(-1)?.type, EventType.RUN_ERROR);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "jev expire choices",
+    ),
+    "choice expiry should log the underlying failure",
+  );
+});
+
 test("invalid and cross-thread actions return a run error without model execution", async (t) => {
   const f = await fixture(t, []);
   const events = await lastValueFrom(
