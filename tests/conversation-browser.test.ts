@@ -113,6 +113,39 @@ test("chat browse_web emits real SDK tool events and returns observed source con
   assert.equal((await fixture.db.list("local-user", "browsers")).length, 1);
 });
 
+test("chat run_computer_command logs computer failures before returning a tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const failure = "Docker is unavailable";
+  await modelFixture(t, (index) =>
+    index === 0
+      ? {
+          name: "run_computer_command",
+          arguments: { operationId: "fail", command: "false", cwd: "/workspace" },
+        }
+      : undefined,
+  );
+  const fixture = await chatFixture(t);
+  fixture.computer.execute = async () => {
+    throw new Error(failure);
+  };
+  const events = (await lastValueFrom(fixture.conversation.run(runInput()).pipe(toArray()))).map(
+    (event) => EventSchemas.parse(event),
+  );
+  const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT);
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  assert.deepEqual(JSON.parse(result.content), { error: failure });
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "chat run computer command",
+    ),
+    "chat run computer command should log computer failures",
+  );
+});
+
 test("chat browse_web emits an honest completed error result when navigation fails", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const { requests } = await modelFixture(t, (index) =>

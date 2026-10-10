@@ -317,6 +317,59 @@ test("replaying a completed prepared action returns its receipt without reopenin
   }
 });
 
+test("delegated run_computer_command logs computer failures before returning a tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const failure = "Docker is unavailable";
+  const directory = await mkdtemp(join(tmpdir(), "openmuse-model-computer-"));
+  const db = await createStore();
+  await modelFixture(t, (index) =>
+    index === 0
+      ? {
+          name: "run_computer_command",
+          arguments: { operationId: "fail", command: "false", cwd: "/workspace" },
+        }
+      : undefined,
+  );
+  const server = await createApp(
+    db,
+    {
+      mode: "sample",
+      port: 8787,
+      host: "127.0.0.1",
+      publicUrl: "http://localhost:8787",
+      dataDir: directory,
+      agentBackend: "model",
+      intelligenceApiKey: "test-project-key-never-sent",
+      model: "openai/fixture",
+      googleRedirectUri: "http://localhost:8787/api/google/callback",
+      allowedOrigins: [],
+      computerEnabled: true,
+    },
+    { docker: computerFixture().runner },
+  );
+  server.computer.execute = async () => {
+    throw new Error(failure);
+  };
+  try {
+    const task = await server.agent.createTask("owner", { prompt: "Run a command on the computer." });
+    await server.agent.worker.tick();
+    assert.ok(
+      logged.mock.calls.some(
+        (call) =>
+          typeof call.arguments[0] === "object" &&
+          call.arguments[0] !== null &&
+          (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+            "task run computer command",
+      ),
+      "task run computer command should log computer failures",
+    );
+  } finally {
+    await server.agent.stop();
+    await db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("delegated read_web logs browser worker failures before returning a tool error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const failure = "Public page could not be opened";
