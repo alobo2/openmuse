@@ -260,7 +260,13 @@ export class ConversationAgent extends AbstractAgent {
           try {
             const messages = await this.service.workspace.thread(this.owner, threadId);
             if (jev && messages.length)
-              await jev.noteEvidence(this.owner, input.threadId, input.runId, "mail", threadId);
+              await this.noteJevEvidence(
+                jev,
+                input,
+                "mail",
+                threadId,
+                browserAbort.signal,
+              );
             return {
               messages: messages.slice(-20).map((message) => ({
                 ...message,
@@ -325,12 +331,12 @@ export class ConversationAgent extends AbstractAgent {
                     typeof page.text === "string" &&
                     page.text.trim()
                   )
-                    await jev.noteEvidence(
-                      this.owner,
-                      input.threadId,
-                      input.runId,
+                    await this.noteJevEvidence(
+                      jev,
+                      input,
                       "web",
                       page.url,
+                      browserAbort.signal,
                       page.text,
                     );
                   return page;
@@ -431,6 +437,24 @@ export class ConversationAgent extends AbstractAgent {
       input,
       !choiceContinuation,
     );
+  }
+  private async noteJevEvidence(
+    jev: JevService,
+    input: RunAgentInput,
+    kind: "mail" | "web",
+    reference: string,
+    signal: AbortSignal,
+    text?: string,
+  ) {
+    try {
+      await jev.noteEvidence(this.owner, input.threadId, input.runId, kind, reference, text);
+    } catch (error) {
+      signal.throwIfAborted();
+      backgroundFailure(
+        kind === "mail" ? "jev note mail evidence" : "jev note web evidence",
+        error,
+      );
+    }
   }
   /**
    * A new user turn retires the current panel before the agent runs, so the durable head matches

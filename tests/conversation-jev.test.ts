@@ -63,8 +63,21 @@ async function fixture(
   calls: Array<{ name: string; arguments: object } | undefined>,
 ) {
   await modelFixture(t, (index) => calls[index]);
-  const browser = await browserFixture(t, () => ({
-    data: { url: "https://example.org", title: "Example", text: "Observed", truncated: false },
+  const browser = await browserFixture(t, (path, body) => ({
+    data: path.endsWith("/read")
+      ? {
+          url: "https://example.org",
+          title: "Example",
+          text: "Observed",
+          truncated: false,
+        }
+      : {
+          id: body.id,
+          url: body.url,
+          title: "Opened",
+          status: "active",
+          updatedAt: new Date().toISOString(),
+        },
   }));
   const config = {
     ...browser.config,
@@ -166,6 +179,73 @@ test("present_choices store failures are logged before the tool error", async (t
           "jev present choices",
     ),
     "present_choices store failures should log the underlying error",
+  );
+});
+
+test("read_mail_thread still returns mail when Jev evidence persistence fails", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const f = await fixture(t, [
+    { name: "read_mail_thread", arguments: { threadId: "trip-thread" } },
+    undefined,
+  ]);
+  await f.workspace.ensureSample("local-user", f.actions);
+  const original = JevService.prototype.noteEvidence;
+  JevService.prototype.noteEvidence = async () => {
+    throw new Error("jev evidence store failed");
+  };
+  t.after(() => {
+    JevService.prototype.noteEvidence = original;
+  });
+  const events = await lastValueFrom(
+    f.conversation.run(input("Read the school trip email")).pipe(toArray()),
+  );
+  const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT);
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  const payload = JSON.parse(String(result.content));
+  assert.ok(Array.isArray(payload.messages));
+  assert.equal("error" in payload, false);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "jev note mail evidence",
+    ),
+    "mail evidence store failures should log without masking the thread read",
+  );
+});
+
+test("browse_web still returns the page when Jev evidence persistence fails", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const f = await fixture(t, [
+    { name: "browse_web", arguments: { url: "https://example.org/exhibit" } },
+    undefined,
+  ]);
+  const original = JevService.prototype.noteEvidence;
+  JevService.prototype.noteEvidence = async () => {
+    throw new Error("jev evidence store failed");
+  };
+  t.after(() => {
+    JevService.prototype.noteEvidence = original;
+  });
+  const events = await lastValueFrom(
+    f.conversation.run(input("Research the exhibit page")).pipe(toArray()),
+  );
+  const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT);
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  const payload = JSON.parse(String(result.content));
+  assert.equal(payload.url, "https://example.org");
+  assert.equal("error" in payload, false);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "jev note web evidence",
+    ),
+    "web evidence store failures should log without masking the browse result",
   );
 });
 
