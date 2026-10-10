@@ -182,6 +182,64 @@ test("present_choices store failures are logged before the tool error", async (t
   );
 });
 
+test("present_choices evidence lookup store failures are logged before the tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  await modelFixture(t, (index) =>
+    index === 0
+      ? {
+          name: "present_choices",
+          arguments: {
+            message: "Trip",
+            context: "School email",
+            title: "Next",
+            control: "clarification",
+            mailThreadId: "trip-thread",
+            options,
+          },
+        }
+      : undefined,
+  );
+  const browser = await browserFixture(t, () => ({
+    data: { url: "https://example.org", title: "Example", text: "Observed", truncated: false },
+  }));
+  const config = {
+    ...browser.config,
+    agentBackend: "model" as const,
+    model: "openai/fixture",
+    jevMode: "live" as const,
+  };
+  const app = await createApp(browser.db, config);
+  t.after(() => app.agent.stop());
+  const adapter = {
+    decide: async () => ({ control: "clarification" as const, scores: { explore: 1 } }),
+  };
+  const agent = new ConversationAgent(config, app.agent, "local-user", adapter);
+  const original = JevService.prototype.hasEvidence;
+  JevService.prototype.hasEvidence = async () => {
+    throw new Error("jev evidence lookup failed");
+  };
+  t.after(() => {
+    JevService.prototype.hasEvidence = original;
+  });
+  const events = await lastValueFrom(agent.run(input("Plan the trip")).pipe(toArray()));
+  const result = events.find(
+    (event) =>
+      event.type === EventType.TOOL_CALL_RESULT && JSON.parse(String(event.content)).panel === null,
+  );
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  assert.match(JSON.parse(String(result.content)).error, /jev evidence lookup failed/);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "jev present choices evidence",
+    ),
+    "present_choices evidence store failures should log the underlying error",
+  );
+});
+
 test("read_mail_thread still returns mail when Jev evidence persistence fails", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const f = await fixture(t, [

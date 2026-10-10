@@ -8,6 +8,19 @@ const optionInput = jevOptionSchema
   .omit({ id: true })
   .extend({ id: z.string().trim().min(1).max(200).optional() });
 const normalizeExcerpt = (value: string) => value.replace(/\s+/g, " ").toLowerCase();
+
+async function jevPresentChoicesEvidenceLookup<T>(
+  signal: AbortSignal,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (signal.aborted) throw error;
+    backgroundFailure("jev present choices evidence", error);
+    throw error;
+  }
+}
 export const presentChoicesParameters = z
   .object({
     message: z.string().trim().min(1).max(2000),
@@ -52,20 +65,25 @@ export function presentChoicesTool(
       };
       try {
         signal.throwIfAborted();
-        if (
-          mode === "live" &&
-          input.mailThreadId &&
-          !(await jev.hasEvidence(owner, threadId, turnId, "mail", input.mailThreadId))
-        )
-          throw new Error("Read the referenced email before presenting choices.");
+        if (mode === "live" && input.mailThreadId) {
+          const hasMailEvidence = await jevPresentChoicesEvidenceLookup(signal, () =>
+            jev.hasEvidence(owner, threadId, turnId, "mail", input.mailThreadId!),
+          );
+          if (!hasMailEvidence)
+            throw new Error("Read the referenced email before presenting choices.");
+        }
         if (mode === "live" && input.control === "comparison") {
           if (input.refinementPanelId) {
-            await jev.candidateSources(owner, threadId, turnId, input.refinementPanelId);
+            await jevPresentChoicesEvidenceLookup(signal, () =>
+              jev.candidateSources(owner, threadId, turnId, input.refinementPanelId!),
+            );
           } else {
             for (const option of input.options) {
               const texts: string[] = [];
               for (const source of option.sources) {
-                const observed = await jev.evidenceText(owner, threadId, turnId, "web", source.url);
+                const observed = await jevPresentChoicesEvidenceLookup(signal, () =>
+                  jev.evidenceText(owner, threadId, turnId, "web", source.url),
+                );
                 if (!observed)
                   throw new Error(`Read the source page before comparing: ${source.url}`);
                 const text = normalizeExcerpt(observed);
