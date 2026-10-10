@@ -46,11 +46,19 @@ test("valid multimodal tool results keep only text in the thread", () => {
   assert.equal((sanitized as { content?: string }).content, "Visible summary");
 });
 
-test("non-array JSON that starts with [ is not left on the thread", () => {
-  const sanitized = textOnlyToolResult({ ...base, content: "[1,2,3]" });
+test("structured JSON arrays that are not content parts stay on the thread", () => {
+  const content = "[1,2,3]";
   assert.equal(
-    (sanitized as { content?: string }).content,
-    "Tool result could not be saved for this thread.",
+    (textOnlyToolResult({ ...base, content }) as { content?: string }).content,
+    content,
+  );
+});
+
+test("plain bracketed tool text is not replaced when JSON parsing fails", () => {
+  const content = "[Meeting notes] Follow up tomorrow.";
+  assert.equal(
+    (textOnlyToolResult({ ...base, content }) as { content?: string }).content,
+    content,
   );
 });
 

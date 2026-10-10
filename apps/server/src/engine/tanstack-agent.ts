@@ -175,6 +175,24 @@ export function tanstackAgent(options: {
  */
 const omittedThreadToolResult = "Tool result could not be saved for this thread.";
 
+/** TanStack multimodal tool results JSON-encode a non-empty array of `{ type, ... }` objects. */
+function looksLikeContentPartsJson(json: string) {
+  return /^\[\s*\{/.test(json);
+}
+
+function arrayLooksLikeContentParts(value: unknown) {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (part) =>
+        typeof part === "object" &&
+        part !== null &&
+        typeof (part as { type?: unknown }).type === "string",
+    )
+  );
+}
+
 export function textOnlyToolResult(event: BaseEvent): BaseEvent {
   if (event.type !== EventType.TOOL_CALL_RESULT) return event;
   const content = (event as { content?: unknown }).content;
@@ -185,10 +203,15 @@ export function textOnlyToolResult(event: BaseEvent): BaseEvent {
   try {
     parts = JSON.parse(json);
   } catch {
-    return { ...event, content: omittedThreadToolResult } as BaseEvent;
+    return looksLikeContentPartsJson(json)
+      ? ({ ...event, content: omittedThreadToolResult } as BaseEvent)
+      : event;
   }
-  if (!isContentPartArray(parts))
-    return { ...event, content: omittedThreadToolResult } as BaseEvent;
+  if (!isContentPartArray(parts)) {
+    return arrayLooksLikeContentParts(parts)
+      ? ({ ...event, content: omittedThreadToolResult } as BaseEvent)
+      : event;
+  }
   const text = parts.flatMap((part) => (part.type === "text" ? [part.content] : []));
   return { ...event, content: text.join("\n") } as BaseEvent;
 }
