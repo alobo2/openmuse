@@ -27,6 +27,12 @@ function clipCalendarText(text: string, limit: number) {
   return text.length > limit && /[\uD800-\uDBFF]$/.test(clipped) ? clipped.slice(0, -1) : clipped;
 }
 
+function logChatToolFailure(signal: AbortSignal, phase: string, error: unknown) {
+  signal.throwIfAborted();
+  if (error instanceof z.ZodError) return;
+  backgroundFailure(phase, error);
+}
+
 export class ConversationAgent extends AbstractAgent {
   constructor(
     private readonly config: Config,
@@ -216,7 +222,7 @@ export class ConversationAgent extends AbstractAgent {
                 ),
             };
           } catch (error) {
-            browserAbort.signal.throwIfAborted();
+            logChatToolFailure(browserAbort.signal, "chat read calendar", error);
             return { error: error instanceof Error ? error.message : "Calendar could not be read" };
           }
         },
@@ -245,7 +251,7 @@ export class ConversationAgent extends AbstractAgent {
               truncated: mail.length > 20,
             };
           } catch (error) {
-            browserAbort.signal.throwIfAborted();
+            logChatToolFailure(browserAbort.signal, "chat search mail", error);
             return { error: error instanceof Error ? error.message : "Could not search mail" };
           }
         },
@@ -276,7 +282,7 @@ export class ConversationAgent extends AbstractAgent {
                 messages.length > 20 || messages.some((message) => message.body.length > 12000),
             };
           } catch (error) {
-            browserAbort.signal.throwIfAborted();
+            logChatToolFailure(browserAbort.signal, "chat read mail thread", error);
             return {
               error: error instanceof Error ? error.message : "Could not read the email thread",
             };
@@ -298,7 +304,7 @@ export class ConversationAgent extends AbstractAgent {
                     browserAbort.signal,
                   );
                 } catch (error) {
-                  browserAbort.signal.throwIfAborted();
+                  logChatToolFailure(browserAbort.signal, "chat search web", error);
                   return {
                     error: error instanceof Error ? error.message : "Could not search the web",
                   };
@@ -341,7 +347,7 @@ export class ConversationAgent extends AbstractAgent {
                     );
                   return page;
                 } catch (error) {
-                  browserAbort.signal.throwIfAborted();
+                  logChatToolFailure(browserAbort.signal, "chat browse web", error);
                   return {
                     error: error instanceof Error ? error.message : "Could not read the page",
                   };

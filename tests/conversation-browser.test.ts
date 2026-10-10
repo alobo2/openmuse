@@ -114,6 +114,7 @@ test("chat browse_web emits real SDK tool events and returns observed source con
 });
 
 test("chat browse_web emits an honest completed error result when navigation fails", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
   const { requests } = await modelFixture(t, (index) =>
     index === 0 ? { name: "browse_web", arguments: { url: requestedUrl } } : undefined,
   );
@@ -127,6 +128,15 @@ test("chat browse_web emits an honest completed error result when navigation fai
   assert.ok(requests[1].body.includes("Public page could not be opened"));
   assert.deepEqual(fixture.browserCalls, ["/sessions"]);
   assert.equal((await fixture.db.list("local-user", "tasks")).length, 0);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "chat browse web",
+    ),
+    "chat browse web should log browser worker failures",
+  );
 });
 
 test("unsubscribing from chat stops queued browser navigation and further model steps", async (t) => {
