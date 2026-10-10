@@ -112,7 +112,8 @@ export class AgentService {
       )) {
         if (value.id !== "identity") continue;
         if (!value.lastIdeasAt || Date.now() - Date.parse(value.lastIdeasAt) > 15 * 60000)
-          await this.refreshIdeas(owner).catch(async () => {
+          await this.refreshIdeas(owner).catch(async (error) => {
+            backgroundFailure("refresh ideas", error);
             await this.notify(
               owner,
               "Source refresh needs attention",

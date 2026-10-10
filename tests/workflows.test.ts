@@ -553,3 +553,34 @@ test("a cancelled task does not stop its idea from starting fresh work", async (
   assert.ok(accepted?.taskId && accepted.taskId !== cancelled.id);
   assert.equal((await server.agent.getTask(ideaOwner, accepted.taskId)).status, "queued");
 });
+
+test("scheduled ideas refresh logs and notifies when the mailbox snapshot fails", async (t) => {
+  const staleOwner = "ideas-refresh-failure";
+  await server.workspace.ensureSample(staleOwner, server.actions);
+  await db.put(staleOwner, "agent-settings", {
+    id: "identity",
+    lastIdeasAt: "2000-01-01T00:00:00.000Z",
+  });
+  const logged = t.mock.method(console, "error", () => {});
+  const snapshot = server.workspace.snapshot.bind(server.workspace);
+  server.workspace.snapshot = async () => {
+    throw new Error("mailbox snapshot failed");
+  };
+  await reconcile();
+  server.workspace.snapshot = snapshot;
+  const notices = await db.list<AgentNotification>(staleOwner, "notifications");
+  assert.ok(
+    notices.some((notice) => notice.title === "Source refresh needs attention"),
+    "maintain should notify when refreshIdeas fails",
+  );
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "refresh ideas",
+    ),
+    "maintain should log refreshIdeas failures",
+  );
+});
