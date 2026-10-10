@@ -173,6 +173,8 @@ export function tanstackAgent(options: {
  * would carry the same parts JSON-encoded, image data included, into the stored thread,
  * and later turns replay that history as plain text. Keep only the text parts there.
  */
+const omittedThreadToolResult = "Tool result could not be saved for this thread.";
+
 export function textOnlyToolResult(event: BaseEvent): BaseEvent {
   if (event.type !== EventType.TOOL_CALL_RESULT) return event;
   const content = (event as { content?: unknown }).content;
@@ -181,9 +183,10 @@ export function textOnlyToolResult(event: BaseEvent): BaseEvent {
   try {
     parts = JSON.parse(content);
   } catch {
-    return event;
+    return { ...event, content: omittedThreadToolResult } as BaseEvent;
   }
-  if (!isContentPartArray(parts)) return event;
+  if (!isContentPartArray(parts))
+    return { ...event, content: omittedThreadToolResult } as BaseEvent;
   const text = parts.flatMap((part) => (part.type === "text" ? [part.content] : []));
   return { ...event, content: text.join("\n") } as BaseEvent;
 }
