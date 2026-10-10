@@ -1,6 +1,7 @@
 import { defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
 import { type JevToolResult, jevOptionSchema } from "../../../../packages/domain/src/jev.ts";
+import { backgroundFailure } from "../log.ts";
 import type { JevService } from "./service.ts";
 
 const optionInput = jevOptionSchema
@@ -41,6 +42,14 @@ export function presentChoicesTool(
       "Present prepared clarification buttons or a sourced comparison after reading evidence. For choices based on a read email, include its mailThreadId; generic choices need no mail. Give 1–12 factual options for a new panel. Each comparison option needs at least one detail; its label, source titles, and details must be exact excerpts from the read source page text. To refine an earlier panel, supply refinementPanelId and leave options empty; the server reuses the full original candidate set. This only asks the user for a preference and performs no external action.",
     parameters: presentChoicesParameters,
     execute: async (input): Promise<JevToolResult> => {
+      const toolError = (error: unknown): JevToolResult => {
+        const message =
+          error instanceof Error ? error.message : "Could not prepare choices. Please retry.";
+        return {
+          panel: null,
+          error: message.length < 300 ? message : "Could not prepare choices. Please retry.",
+        };
+      };
       try {
         signal.throwIfAborted();
         if (
@@ -78,15 +87,16 @@ export function presentChoicesTool(
             }
           }
         }
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return toolError(error);
+      }
+      try {
         return await jev.createPanel(owner, threadId, turnId, { ...input, userMessage }, signal);
       } catch (error) {
         if (signal.aborted) throw error;
-        const message =
-          error instanceof Error ? error.message : "Could not prepare choices. Please retry.";
-        return {
-          panel: null,
-          error: message.length < 300 ? message : "Could not prepare choices. Please retry.",
-        };
+        backgroundFailure("jev present choices", error);
+        return toolError(error);
       }
     },
   });

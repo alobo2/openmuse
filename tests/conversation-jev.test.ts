@@ -126,6 +126,49 @@ test("present_choices emits a complete panel and selection uses trusted stored l
   assert.equal(stored?.selectedId, "explore");
 });
 
+test("present_choices store failures are logged before the tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const f = await fixture(t, [
+    {
+      name: "present_choices",
+      arguments: {
+        message: "Help with trip",
+        context: "School email",
+        title: "What next?",
+        control: "clarification",
+        options,
+      },
+    },
+    undefined,
+  ]);
+  const original = JevService.prototype.createPanel;
+  JevService.prototype.createPanel = async () => {
+    throw new Error("jev panel store failed");
+  };
+  t.after(() => {
+    JevService.prototype.createPanel = original;
+  });
+  const events = await lastValueFrom(
+    f.conversation.run(input("Help with aquarium trip")).pipe(toArray()),
+  );
+  const result = events.find(
+    (event) =>
+      event.type === EventType.TOOL_CALL_RESULT && JSON.parse(String(event.content)).panel === null,
+  );
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  assert.match(JSON.parse(String(result.content)).error, /jev panel store failed/);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "jev present choices",
+    ),
+    "present_choices store failures should log the underlying error",
+  );
+});
+
 test("jev choice selection failures are logged before the run error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const f = await fixture(t, [undefined]);
