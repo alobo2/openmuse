@@ -54,6 +54,17 @@ test("structured JSON arrays that are not content parts stay on the thread", () 
   );
 });
 
+test("mixed arrays with a typed part object do not keep image data on the thread", () => {
+  const imagePart = { type: "image", image: "A".repeat(200) };
+  const content = `[1,2,${JSON.stringify(imagePart)}]`;
+  const sanitized = textOnlyToolResult({ ...base, content });
+  assert.equal(
+    (sanitized as { content?: string }).content,
+    "Tool result could not be saved for this thread.",
+  );
+  assert.ok(!(sanitized as { content?: string }).content?.includes("AAAA"));
+});
+
 test("plain bracketed tool text is not replaced when JSON parsing fails", () => {
   const content = "[Meeting notes] Follow up tomorrow.";
   assert.equal(

@@ -180,17 +180,26 @@ function looksLikeContentPartsJson(json: string) {
   return /^\[\s*\{/.test(json);
 }
 
+function partHasStringType(part: unknown) {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    typeof (part as { type?: unknown }).type === "string"
+  );
+}
+
+/** True when the array is non-empty and every element is a `{ type }` object (TanStack part shape). */
 function arrayLooksLikeContentParts(value: unknown) {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every(
-      (part) =>
-        typeof part === "object" &&
-        part !== null &&
-        typeof (part as { type?: unknown }).type === "string",
-    )
+    value.every((part) => partHasStringType(part))
   );
+}
+
+/** Mixed arrays like `[1, {"type":"image",…}]` are still multimodal tool payloads. */
+function arrayContainsTypedPartObject(value: unknown) {
+  return Array.isArray(value) && value.some((part) => partHasStringType(part));
 }
 
 export function textOnlyToolResult(event: BaseEvent): BaseEvent {
@@ -208,7 +217,7 @@ export function textOnlyToolResult(event: BaseEvent): BaseEvent {
       : event;
   }
   if (!isContentPartArray(parts)) {
-    return arrayLooksLikeContentParts(parts)
+    return arrayLooksLikeContentParts(parts) || arrayContainsTypedPartObject(parts)
       ? ({ ...event, content: omittedThreadToolResult } as BaseEvent)
       : event;
   }
