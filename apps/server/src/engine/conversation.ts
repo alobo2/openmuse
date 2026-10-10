@@ -361,7 +361,17 @@ export class ConversationAgent extends AbstractAgent {
         description:
           "Hand a whole job to the durable server worker. It continues when the app closes and pauses for user input or approval. Use document for a selected email form, finance for imported CSV, plan for a goal plan, agent for other jobs.",
         parameters: createTaskSchema,
-        execute: async (args) => this.service.createTask(this.owner, args, key("task", args)),
+        execute: async (args) => {
+          browserAbort.signal.throwIfAborted();
+          try {
+            return await this.service.createTask(this.owner, args, key("task", args));
+          } catch (error) {
+            logChatToolFailure(browserAbort.signal, "chat delegate task", error);
+            return {
+              error: error instanceof Error ? error.message : "Could not delegate this task",
+            };
+          }
+        },
       }),
       defineTool({
         name: "agent_status",

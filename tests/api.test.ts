@@ -303,6 +303,60 @@ function sampleRun(threadId: string, runId: string, messageId: string, content: 
   });
 }
 
+test("chat delegate_task logs store failures before returning a tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const failure = "Task store unavailable";
+  await modelFixture(t, (index) =>
+    index === 0
+      ? {
+          name: "delegate_task",
+          arguments: { prompt: "Organize my receipts", kind: "agent" },
+        }
+      : undefined,
+  );
+  const browser = await browserFixture(t, () => ({ data: { ok: true } }));
+  const modelConfig = {
+    ...browser.config,
+    agentBackend: "model" as const,
+    model: "openai/fixture",
+  };
+  const { agent: modelAgent } = await createApp(browser.db, modelConfig);
+  t.after(() => modelAgent.stop());
+  const original = modelAgent.createTask.bind(modelAgent);
+  modelAgent.createTask = async () => {
+    throw new Error(failure);
+  };
+  t.after(() => {
+    modelAgent.createTask = original;
+  });
+  const conversation = new ConversationAgent(modelConfig, modelAgent, "local-user");
+  const events = await lastValueFrom(
+    conversation
+      .run({
+        threadId: "delegate-task-error",
+        runId: "delegate-task-error-run",
+        messages: [{ id: "delegate-task-error-msg", role: "user", content: "Delegate this" }],
+        tools: [],
+        context: [],
+        state: {},
+      })
+      .pipe(toArray()),
+  );
+  const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT);
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  assert.deepEqual(JSON.parse(result.content), { error: failure });
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "chat delegate task",
+    ),
+    "chat delegate task should log delegation failures",
+  );
+});
+
 test("model chat failures are logged before the run error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   await modelFixture(t, () => undefined, { errorStatus: () => 400 });
