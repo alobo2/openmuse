@@ -357,6 +357,64 @@ test("chat create_goal logs store failures before returning a tool error", async
   );
 });
 
+test("chat watch_page logs store failures before returning a tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const failure = "Monitor store unavailable";
+  await modelFixture(t, (index) =>
+    index === 0
+      ? {
+          name: "watch_page",
+          arguments: {
+            title: "Example page",
+            url: "https://example.com",
+            condition: "change",
+          },
+        }
+      : undefined,
+  );
+  const browser = await browserFixture(t, () => ({ data: { ok: true } }));
+  const modelConfig = {
+    ...browser.config,
+    agentBackend: "model" as const,
+    model: "openai/fixture",
+  };
+  const { agent: modelAgent } = await createApp(browser.db, modelConfig);
+  t.after(() => modelAgent.stop());
+  const original = modelAgent.createMonitor.bind(modelAgent);
+  modelAgent.createMonitor = async () => {
+    throw new Error(failure);
+  };
+  t.after(() => {
+    modelAgent.createMonitor = original;
+  });
+  const conversation = new ConversationAgent(modelConfig, modelAgent, "local-user");
+  const events = await lastValueFrom(
+    conversation
+      .run({
+        threadId: "watch-page-error",
+        runId: "watch-page-error-run",
+        messages: [{ id: "watch-page-error-msg", role: "user", content: "Watch that page" }],
+        tools: [],
+        context: [],
+        state: {},
+      })
+      .pipe(toArray()),
+  );
+  const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT);
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  assert.deepEqual(JSON.parse(result.content), { error: failure });
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "chat watch page",
+    ),
+    "chat watch page should log monitor persistence failures",
+  );
+});
+
 test("chat delegate_task logs store failures before returning a tool error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const failure = "Task store unavailable";

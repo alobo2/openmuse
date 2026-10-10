@@ -405,7 +405,17 @@ export class ConversationAgent extends AbstractAgent {
         description:
           "Schedule a public-page condition check requested by the user. The worker records observations and notifies on meaningful changes. Price checks detect explicit USD or dollar prices; no booking is performed.",
         parameters: monitorInputSchema,
-        execute: async (args) => this.service.createMonitor(this.owner, args, key("watch", args)),
+        execute: async (args) => {
+          browserAbort.signal.throwIfAborted();
+          try {
+            return await this.service.createMonitor(this.owner, args, key("watch", args));
+          } catch (error) {
+            logChatToolFailure(browserAbort.signal, "chat watch page", error);
+            return {
+              error: error instanceof Error ? error.message : "Could not schedule this page watch",
+            };
+          }
+        },
       }),
       defineTool({
         name: "remember_fact",
