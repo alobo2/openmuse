@@ -384,12 +384,21 @@ export class ConversationAgent extends AbstractAgent {
         name: "create_goal",
         description: "Save an outcome and milestones requested by the user",
         parameters: goalInputSchema,
-        execute: async (args) =>
-          this.service.createGoal(
-            this.owner,
-            args,
-            createHash("sha256").update(key("goal", args)).digest("hex"),
-          ),
+        execute: async (args) => {
+          browserAbort.signal.throwIfAborted();
+          try {
+            return await this.service.createGoal(
+              this.owner,
+              args,
+              createHash("sha256").update(key("goal", args)).digest("hex"),
+            );
+          } catch (error) {
+            logChatToolFailure(browserAbort.signal, "chat create goal", error);
+            return {
+              error: error instanceof Error ? error.message : "Could not create this goal",
+            };
+          }
+        },
       }),
       defineTool({
         name: "watch_page",
