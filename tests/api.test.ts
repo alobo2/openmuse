@@ -301,6 +301,32 @@ function sampleRun(threadId: string, runId: string, messageId: string, content: 
   });
 }
 
+test("sample chat failures are logged before the run error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const original = agent.workspace.snapshot;
+  agent.workspace.snapshot = async () => {
+    throw new Error("sample snapshot failed");
+  };
+  t.after(() => {
+    agent.workspace.snapshot = original;
+  });
+  const events = await lastValueFrom(
+    sampleRun("sample-error", "sample-error-run", "sample-error-msg", "Show my calendar").pipe(
+      toArray(),
+    ),
+  );
+  assert.equal(events.at(-1)?.type, EventType.RUN_ERROR);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "sample chat",
+    ),
+    "sample chat should log the underlying failure",
+  );
+});
+
 test("sample agent streams actual AG-UI events without a model key", async () => {
   const info = await app.request("/api/copilotkit/info", { headers: headers() });
   assert.equal(info.status, 200);

@@ -144,6 +144,7 @@ export class ConversationAgent extends AbstractAgent {
               subscriber.complete();
             })
             .catch((error) => {
+              backgroundFailure("sample chat", error);
               subscriber.next({
                 type: EventType.RUN_ERROR,
                 message: error instanceof Error ? error.message : "Could not start the task",
