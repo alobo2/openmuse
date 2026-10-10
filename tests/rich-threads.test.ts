@@ -63,11 +63,21 @@ test("main chat is provisioned for the authenticated owner before the first run"
 
 test("a failed main-thread connection remains an error and does not create another id", async (t) => {
   const before = await db.get("local-user", "conversation-settings", "main");
+  const logged = t.mock.method(console, "error", () => {});
   t.mock.method(CopilotKitIntelligence.prototype, "getOrCreateThread", async () => {
     throw new Error("Platform unavailable");
   });
   assert.equal((await app.request("/api/main-thread", { headers: headers() })).status, 502);
   assert.deepEqual(await db.get("local-user", "conversation-settings", "main"), before);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "main thread",
+    ),
+    "main thread provisioning should log the underlying failure",
+  );
 });
 
 test("Rich Threads lists through CopilotKit, scopes by authenticated owner and preserves pagination", async (t) => {

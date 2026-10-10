@@ -22,6 +22,7 @@ import type { Store } from "./db.ts";
 import { agentRoutes } from "./engine/routes.ts";
 import { AgentService } from "./engine/service.ts";
 import { AppError } from "./errors.ts";
+import { providerFailure } from "./log.ts";
 import { Files } from "./files.ts";
 import { GoogleAuth } from "./google-auth.ts";
 import { rateLimit } from "./rate-limit.ts";
@@ -220,7 +221,8 @@ export async function createApp(
         userId: owner,
         agentId: "default",
       });
-    } catch {
+    } catch (error) {
+      providerFailure("main thread", error);
       throw new AppError(
         "Main conversation is unavailable. Check the Rich Threads connection and try again.",
         502,
