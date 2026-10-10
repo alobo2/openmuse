@@ -14,7 +14,7 @@ import { calendarRangeSchema } from "../../../../packages/domain/src/index.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import { computerInstructions, computerTools } from "../computer-tools.ts";
 import type { Config } from "../config.ts";
-import { backgroundFailure } from "../log.ts";
+import { backgroundFailure, providerFailure } from "../log.ts";
 import { createJevAdapter, type JevAdapter } from "../jev/adapter.ts";
 import { JevService } from "../jev/service.ts";
 import { presentChoicesTool } from "../jev/tools.ts";
@@ -426,7 +426,23 @@ export class ConversationAgent extends AbstractAgent {
       new Observable((subscriber) => {
         const subscription = agent
           .run({ ...input, tools: input.tools.filter((t) => t.name === "open_workspace") })
-          .subscribe(subscriber);
+          .subscribe({
+            next: (event) => {
+              if (event.type === EventType.RUN_ERROR && !browserAbort.signal.aborted) {
+                const message =
+                  "message" in event && typeof event.message === "string"
+                    ? event.message
+                    : "Model chat failed";
+                providerFailure("model chat", new Error(message));
+              }
+              subscriber.next(event);
+            },
+            error: (error) => {
+              if (!browserAbort.signal.aborted) providerFailure("model chat", error);
+              subscriber.error(error);
+            },
+            complete: () => subscriber.complete(),
+          });
         return () => {
           browserAbort.abort();
           agent.abortRun();

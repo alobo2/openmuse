@@ -14,6 +14,8 @@ import type { AgentService } from "../apps/server/src/engine/service.ts";
 import { deterministicFileId, Files } from "../apps/server/src/files.ts";
 import type { ActionProposal, Artifact, Workspace } from "../packages/domain/src/index.ts";
 import { createSamplePdf } from "../packages/integrations/src/pdf.ts";
+import { browserFixture } from "./helpers/browser.ts";
+import { modelFixture } from "./helpers/model.ts";
 
 let db: Store,
   app: Awaited<ReturnType<typeof createApp>>["app"],
@@ -300,6 +302,48 @@ function sampleRun(threadId: string, runId: string, messageId: string, content: 
     state: {},
   });
 }
+
+test("model chat failures are logged before the run error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  await modelFixture(t, () => undefined, { errorStatus: () => 400 });
+  const browser = await browserFixture(t, () => ({ data: { ok: true } }));
+  const modelConfig = {
+    ...browser.config,
+    agentBackend: "model" as const,
+    model: "openai/fixture",
+  };
+  const { agent: modelAgent } = await createApp(browser.db, modelConfig);
+  t.after(() => modelAgent.stop());
+  const conversation = new ConversationAgent(modelConfig, modelAgent, "local-user");
+  let events: Array<{ type: string }> = [];
+  try {
+    events = await lastValueFrom(
+      conversation
+        .run({
+          threadId: "model-error",
+          runId: "model-error-run",
+          messages: [{ id: "model-error-msg", role: "user", content: "Hello" }],
+          tools: [],
+          context: [],
+          state: {},
+        })
+        .pipe(toArray()),
+    );
+  } catch (error) {
+    assert.match(String(error), /Fixture provider failure/);
+  }
+  if (events.length)
+    assert.equal(events.at(-1)?.type, EventType.RUN_ERROR, "completed runs should end in RUN_ERROR");
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "model chat",
+    ),
+    "model chat should log the underlying provider failure",
+  );
+});
 
 test("sample chat failures are logged before the run error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
