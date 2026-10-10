@@ -74,3 +74,42 @@ for (const scenario of [
     }
   });
 }
+
+test("delegated model task provider failures are logged before the task fails", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  await modelFixture(t, () => undefined, { errorStatus: () => 400 });
+  const directory = await mkdtemp(join(tmpdir(), "openmuse-model-task-error-"));
+  const db = await createStore();
+  const server = await createApp(db, {
+    mode: "sample",
+    port: 8787,
+    host: "127.0.0.1",
+    publicUrl: "http://localhost:8787",
+    dataDir: directory,
+    agentBackend: "model",
+    model: "openai/fixture",
+    intelligenceApiKey: "test-project-key-never-sent",
+    googleRedirectUri: "http://localhost:8787/api/google/callback",
+    allowedOrigins: [],
+  });
+  try {
+    const task = await server.agent.createTask("owner", { prompt: "Do something open-ended" });
+    await server.agent.worker.tick();
+    const saved = await server.agent.getTask("owner", task.id);
+    assert.equal(saved.status, "failed");
+    assert.match(saved.error ?? "", /Fixture provider failure/);
+    assert.ok(
+      logged.mock.calls.some(
+        (call) =>
+          typeof call.arguments[0] === "object" &&
+          call.arguments[0] !== null &&
+          (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "model task",
+      ),
+      "model task should log the underlying provider failure",
+    );
+  } finally {
+    await server.agent.stop();
+    await db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

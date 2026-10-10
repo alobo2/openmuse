@@ -7,6 +7,7 @@ import type { AgentTask } from "../../../../packages/domain/src/agent.ts";
 import { emailDraftSchema, eventDraftSchema } from "../../../../packages/domain/src/index.ts";
 import { computerInstructions, computerTools } from "../computer-tools.ts";
 import { searchDescription, searchInputSchema, searchInstructions } from "../search.ts";
+import { providerFailure } from "../log.ts";
 import type { AgentService } from "./service.ts";
 import { tanstackAgent } from "./tanstack-agent.ts";
 import type { TaskContext } from "./worker.ts";
@@ -369,12 +370,16 @@ export async function executeModelTask(
           typeof event.delta === "string"
         )
           text += event.delta;
-        if (event.type === EventType.RUN_ERROR && "message" in event)
+        if (event.type === EventType.RUN_ERROR && "message" in event) {
           runError = String(event.message);
+          if (!ctx.signal.aborted)
+            providerFailure("model task", new Error(runError));
+        }
       },
       error: (error) => {
         clearTimeout(timeout);
         ctx.signal.removeEventListener("abort", abort);
+        if (!ctx.signal.aborted) providerFailure("model task", error);
         reject(error);
       },
       complete: () => {
