@@ -56,10 +56,21 @@ export class ConversationAgent extends AbstractAgent {
         let subscription: { unsubscribe(): void } | undefined;
         let cancelled = false;
         void (async () => {
+          let action;
           try {
             if (!jev) throw new Error("Choices are unavailable in this conversation");
-            const action = parseJevAction(latestText);
+            action = parseJevAction(latestText);
             if (!action) throw new Error("The choice could not be read");
+          } catch (error) {
+            if (cancelled) return;
+            subscriber.next({
+              type: EventType.RUN_ERROR,
+              message: error instanceof Error ? error.message : "Could not select this choice",
+            });
+            subscriber.complete();
+            return;
+          }
+          try {
             const selection = await jev.select(this.owner, input.threadId, action);
             if (cancelled) return;
             const messages = input.messages.map((message) =>
@@ -68,6 +79,7 @@ export class ConversationAgent extends AbstractAgent {
             subscription = this.runInternal({ ...input, messages }, true).subscribe(subscriber);
           } catch (error) {
             if (cancelled) return;
+            backgroundFailure("jev select choice", error);
             subscriber.next({
               type: EventType.RUN_ERROR,
               message: error instanceof Error ? error.message : "Could not select this choice",

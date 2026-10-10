@@ -126,6 +126,43 @@ test("present_choices emits a complete panel and selection uses trusted stored l
   assert.equal(stored?.selectedId, "explore");
 });
 
+test("jev choice selection failures are logged before the run error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const f = await fixture(t, [undefined]);
+  const original = JevService.prototype.select;
+  JevService.prototype.select = async () => {
+    throw new Error("jev select failed");
+  };
+  t.after(() => {
+    JevService.prototype.select = original;
+  });
+  const events = await lastValueFrom(
+    f.conversation
+      .run(
+        input(
+          encodeJevAction({
+            panelId: "panel-1",
+            threadId: "jev-thread",
+            candidateSetVersion: 1,
+            optionId: "explore",
+          }),
+        ),
+      )
+      .pipe(toArray()),
+  );
+  assert.equal(events.at(-1)?.type, EventType.RUN_ERROR);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "jev select choice",
+    ),
+    "choice selection should log the underlying failure",
+  );
+});
+
 test("jev choice expiry failures are logged before the run error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const f = await fixture(t, [undefined]);
@@ -151,11 +188,17 @@ test("jev choice expiry failures are logged before the run error", async (t) => 
 });
 
 test("invalid and cross-thread actions return a run error without model execution", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
   const f = await fixture(t, []);
   const events = await lastValueFrom(
     f.conversation.run(input("[OpenMuse choice] bad-json")).pipe(toArray()),
   );
   assert.equal(events.at(-1)?.type, EventType.RUN_ERROR);
+  assert.equal(
+    logged.mock.calls.length,
+    0,
+    "malformed choice payloads should not log as background failures",
+  );
   const cross = await lastValueFrom(
     f.conversation
       .run(
