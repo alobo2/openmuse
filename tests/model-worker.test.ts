@@ -317,6 +317,47 @@ test("replaying a completed prepared action returns its receipt without reopenin
   }
 });
 
+test("delegated read_web logs browser worker failures before returning a tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const failure = "Public page could not be opened";
+  const browser = await browserFixture(t, (path) => {
+    if (path === "/sessions") {
+      return {
+        data: {
+          id: "session-1",
+          title: "Opened page",
+          url: "https://example.org/",
+          status: "active",
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    }
+    return { status: 502, data: { error: { message: failure } } };
+  });
+  await modelFixture(t, (index) =>
+    index === 0 ? { name: "read_web", arguments: { url: "https://example.org/" } } : undefined,
+  );
+  const app = await createApp(browser.db, {
+    ...browser.config,
+    agentBackend: "model",
+    model: "openai/fixture",
+  });
+  t.after(() => app.agent.stop());
+
+  const task = await app.agent.createTask("owner", { prompt: "Read the public page." });
+  await app.agent.worker.tick();
+
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "task read web",
+    ),
+    "task read web should log browser worker failures",
+  );
+});
+
 test("browser reads keep observation identity distinct while reusing one session", async (t) => {
   let currentUrl = "https://example.com/one";
   const sessionIds = new Set<string>();

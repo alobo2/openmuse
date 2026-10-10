@@ -7,10 +7,16 @@ import type { AgentTask } from "../../../../packages/domain/src/agent.ts";
 import { emailDraftSchema, eventDraftSchema } from "../../../../packages/domain/src/index.ts";
 import { computerInstructions, computerTools } from "../computer-tools.ts";
 import { searchDescription, searchInputSchema, searchInstructions } from "../search.ts";
-import { providerFailure } from "../log.ts";
+import { backgroundFailure, providerFailure } from "../log.ts";
 import type { AgentService } from "./service.ts";
 import { tanstackAgent } from "./tanstack-agent.ts";
-import type { TaskContext } from "./worker.ts";
+import { LostLeaseError, type TaskContext } from "./worker.ts";
+
+function logTaskToolFailure(signal: AbortSignal, name: string, error: unknown) {
+  signal.throwIfAborted();
+  if (error instanceof z.ZodError || error instanceof LostLeaseError) return;
+  backgroundFailure(`task ${name.replaceAll("_", " ")}`, error);
+}
 
 export async function executeModelTask(
   service: AgentService,
@@ -69,6 +75,7 @@ export async function executeModelTask(
           try {
             return await execute(parameters.parse(args));
           } catch (error) {
+            logTaskToolFailure(ctx.signal, name, error);
             const message = error instanceof Error ? error.message : "Tool failed";
             await ctx.event("error", `${name} failed`, message);
             return { error: message };
