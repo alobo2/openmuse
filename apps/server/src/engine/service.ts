@@ -825,6 +825,7 @@ export class AgentService {
         return await this.observe(owner, task, context);
       } catch (error) {
         if (error instanceof LostLeaseError || context.signal.aborted) throw error;
+        backgroundFailure("monitor page check", error);
         await context.guard();
         const failures = Number(task.state.failures ?? 0) + 1;
         // Each streak of failures (after a success or a resume) gets its own alerts.

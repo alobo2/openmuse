@@ -291,7 +291,8 @@ test("cancelling a task denies its pending action", async () => {
   assert.equal((await server.agent.getTask(owner, task.id)).status, "cancelled");
 });
 
-test("failed page checks back off, expose the error, and pause after repeated failures", async () => {
+test("failed page checks back off, expose the error, and pause after repeated failures", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
   const monitor = await server.agent.createMonitor(owner, {
     title: "Public availability",
     url: "https://example.com",
@@ -312,6 +313,16 @@ test("failed page checks back off, expose the error, and pause after repeated fa
       );
   }
   assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "paused");
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "monitor page check",
+    ),
+    "monitor page check should log browser failures before scheduling retries",
+  );
 });
 
 test("each failure streak of a watch raises its own alerts after it is resumed", async () => {
