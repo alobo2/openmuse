@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { localDateTime } from "../../../packages/domain/src/date-time.ts";
 import type {
   ActionProposal,
@@ -17,6 +18,7 @@ import { agentConfigured } from "./agent.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { AppError } from "./errors.ts";
+import { backgroundFailure } from "./log.ts";
 import type { Files } from "./files.ts";
 import type { GoogleAuth } from "./google-auth.ts";
 
@@ -509,5 +511,22 @@ export class WorkspaceService {
       connectionId: connection.id,
     });
     return file;
+  }
+}
+
+export function logWorkspaceApiFailure(phase: string, error: unknown) {
+  if (error instanceof z.ZodError) return;
+  if (error instanceof AppError) {
+    if (error.status === 404 || error.status === 409 || error.status === 422) return;
+  }
+  backgroundFailure(phase, error);
+}
+
+export async function withWorkspaceApiLog<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    logWorkspaceApiFailure(phase, error);
+    throw error;
   }
 }

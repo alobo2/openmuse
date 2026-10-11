@@ -20,6 +20,7 @@ import { modelFixture } from "./helpers/model.ts";
 let db: Store,
   app: Awaited<ReturnType<typeof createApp>>["app"],
   agent: AgentService,
+  workspace: Awaited<ReturnType<typeof createApp>>["workspace"],
   config: Config,
   token: string,
   directory: string;
@@ -38,7 +39,7 @@ before(async () => {
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: ["http://localhost:8081"],
   };
-  ({ app, agent } = await createApp(db, config));
+  ({ app, agent, workspace } = await createApp(db, config));
   const response = await app.request("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -50,6 +51,27 @@ before(async () => {
 after(async () => {
   await db.close();
   await rm(directory, { recursive: true, force: true });
+});
+
+test("workspace API logs provider failures while returning the client error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const snapshot = workspace.snapshot.bind(workspace);
+  workspace.snapshot = async () => {
+    throw new Error("workspace snapshot failed");
+  };
+  const response = await app.request("/api/workspace", { headers: headers() });
+  workspace.snapshot = snapshot;
+  assert.equal(response.status, 502);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "workspace snapshot",
+    ),
+    "workspace snapshot should log provider failures",
+  );
 });
 
 test("API protects private data and rejects unrelated web origins", async () => {

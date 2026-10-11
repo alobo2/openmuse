@@ -26,7 +26,7 @@ import { providerFailure } from "./log.ts";
 import { Files } from "./files.ts";
 import { GoogleAuth } from "./google-auth.ts";
 import { rateLimit } from "./rate-limit.ts";
-import { WorkspaceService } from "./workspace.ts";
+import { WorkspaceService, withWorkspaceApiLog } from "./workspace.ts";
 
 export async function createApp(
   db: Store,
@@ -143,20 +143,24 @@ export async function createApp(
     c.set("owner", owner);
     await next();
   });
-  app.get("/api/workspace", async (c) => {
-    const [snapshot, reachable] = await Promise.all([
-      workspace.snapshot(c.get("owner"), c.req.query("q")),
-      browser.reachable(),
-    ]);
-    snapshot.browsers = snapshot.browsers.map((s) => browser.decorate(c.get("owner"), s));
-    // A configured worker that does not answer is offline, not ready.
-    snapshot.connections = snapshot.connections.map((connection) =>
-      connection.id === "browser" && connection.status === "connected" && !reachable
-        ? { ...connection, status: "unavailable" }
-        : connection,
-    );
-    return c.json(snapshot);
-  });
+  app.get("/api/workspace", async (c) =>
+    c.json(
+      await withWorkspaceApiLog("workspace snapshot", async () => {
+        const [snapshot, reachable] = await Promise.all([
+          workspace.snapshot(c.get("owner"), c.req.query("q")),
+          browser.reachable(),
+        ]);
+        snapshot.browsers = snapshot.browsers.map((s) => browser.decorate(c.get("owner"), s));
+        // A configured worker that does not answer is offline, not ready.
+        snapshot.connections = snapshot.connections.map((connection) =>
+          connection.id === "browser" && connection.status === "connected" && !reachable
+            ? { ...connection, status: "unavailable" }
+            : connection,
+        );
+        return snapshot;
+      }),
+    ),
+  );
   app.route("/api/agent", agentRoutes(agent));
   app.route("/api/computer", computerRoutes(computer, files));
   app.get("/api/calendars", async (c) => c.json(await workspace.calendars(c.get("owner"))));
