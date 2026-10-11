@@ -53,7 +53,12 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     const { requestId, ...input } = createTaskSchema
       .extend({ requestId: z.string().min(1).max(200).optional() })
       .parse(await c.req.json());
-    return c.json(await service.createTask(c.get("owner"), input, requestId), 201);
+    return c.json(
+      await withAgentApiLog("create task", () =>
+        service.createTask(c.get("owner"), input, requestId),
+      ),
+      201,
+    );
   });
   app.get("/tasks/:id", async (c) =>
     c.json(await service.detail(c.get("owner"), c.req.param("id"))),

@@ -232,6 +232,26 @@ test("memories can be edited and forgotten while identity changes persist", asyn
   assert.ok(await db.get("other-user", "memories", "private-memory"));
 });
 
+test("create task API logs provider failures while returning the client error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const createTask = server.agent.createTask.bind(server.agent);
+  server.agent.createTask = async () => {
+    throw new Error("create task failed");
+  };
+  const response = await request("/tasks", { prompt: "Track spending", kind: "finance" });
+  server.agent.createTask = createTask;
+  assert.equal(response.status, 502);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "create task",
+    ),
+    "create task should log provider failures",
+  );
+});
+
 test("agent snapshot API logs provider failures while returning the client error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const snapshot = server.agent.snapshot.bind(server.agent);
