@@ -11,7 +11,11 @@ import type { Files } from "./files.ts";
 import { backgroundFailure } from "./log.ts";
 
 function logComputerApiFailure(phase: string, error: unknown) {
-  if (error instanceof AppError && error.status === 409) return;
+  if (error instanceof z.ZodError) return;
+  if (error instanceof AppError) {
+    if (error.status === 404 || error.status === 409 || error.status === 413 || error.status === 422)
+      return;
+  }
   backgroundFailure(phase, error);
 }
 
@@ -56,15 +60,14 @@ export function computerRoutes(computer: ComputerService, files: Files) {
     c.header("Cache-Control", "no-store");
     return c.body(new Uint8Array(bytes));
   });
-  app.post("/commands", async (c) =>
-    c.json(
-      await withComputerApiLog("computer command", async () =>
-        computer.execute(c.get("owner"), computerCommandSchema.parse(await c.req.json()), {
-          signal: c.req.raw.signal,
-        }),
+  app.post("/commands", async (c) => {
+    const input = computerCommandSchema.parse(await c.req.json());
+    return c.json(
+      await withComputerApiLog("computer command", () =>
+        computer.execute(c.get("owner"), input, { signal: c.req.raw.signal }),
       ),
-    ),
-  );
+    );
+  });
   app.get("/files", async (c) =>
     c.json(
       await withComputerApiLog("computer files list", () =>
