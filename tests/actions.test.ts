@@ -119,6 +119,29 @@ test("uncertain writes retain uncertainty and cannot be retried", async () => {
   await service.decide("uncertain-user", proposal.id, proposal.hash, "approve");
   assert.equal(calls, 1);
 });
+test("reviewed action execution failures log structured errors", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const service = new ActionService(db, {
+    execute: async () => {
+      throw new Error("Gmail API unavailable");
+    },
+    connected: async () => true,
+  });
+  const proposal = await service.propose("execute-fail-user", email);
+  const result = await service.decide("execute-fail-user", proposal.id, proposal.hash, "approve");
+  assert.equal(result.status, "failed");
+  assert.equal(result.error, "Gmail API unavailable");
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "reviewed action execute",
+    ),
+    "approved actions should log provider failures before persisting failed status",
+  );
+});
 test("another service instance sees persisted proposals", async () => {
   const options = { execute: async () => "created", connected: async () => true };
   const first = new ActionService(db, options);

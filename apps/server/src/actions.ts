@@ -7,6 +7,7 @@ import {
 } from "../../../packages/domain/src/index.ts";
 import type { Store } from "./db.ts";
 import { AppError } from "./errors.ts";
+import { backgroundFailure } from "./log.ts";
 
 interface Options {
   execute: (
@@ -191,6 +192,7 @@ export class ActionService {
       );
       finished = { ...claimed, status: "succeeded", result };
     } catch (error) {
+      backgroundFailure("reviewed action execute", error);
       const unknown =
         error instanceof Error &&
         (("outcomeUnknown" in error && error.outcomeUnknown === true) ||
