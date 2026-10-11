@@ -77,6 +77,44 @@ test("computer REST endpoints require session ownership and return persisted rec
   }
 });
 
+test("computer files read API logs provider failures while returning the client error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const directory = await mkdtemp(join(tmpdir(), "openmuse-computer-api-files-"));
+  const db = await createStore();
+  const f = fixture({ owner: "local-user" });
+  const runner = async (args: string[], opts: { timeoutMs: number; input?: string }) => {
+    if (args[0] === "exec" && args.includes("/opt/openmuse/files.py"))
+      throw new Error("docker file exec offline");
+    return f.runner(args, opts);
+  };
+  const server = await createApp(db, { ...config, dataDir: directory }, { docker: runner });
+  try {
+    const session = await server.auth.session();
+    const response = await server.app.request("/api/computer/files/read", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ path: "/workspace/today.md" }),
+    });
+    assert.equal(response.status, 502);
+    assert.ok(
+      logged.mock.calls.some(
+        (call) =>
+          typeof call.arguments[0] === "object" &&
+          call.arguments[0] !== null &&
+          (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+            "computer files read",
+      ),
+      "REST computer files read should log provider failures",
+    );
+  } finally {
+    await db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("computer start API logs provider failures while returning the client error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const directory = await mkdtemp(join(tmpdir(), "openmuse-computer-api-start-"));
