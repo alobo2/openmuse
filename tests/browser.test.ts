@@ -111,6 +111,32 @@ test("console input persists the worker's current page title and URL", async (t)
   assert.deepEqual(await service.get("owner", sessionId), updated);
 });
 
+test("browser create API logs worker failures while returning the client error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const { db, config } = await browserFixture(t, () => ({
+    status: 502,
+    data: { error: { code: "NAVIGATION_FAILED", message: "Page unavailable" } },
+  }));
+  const { app, auth, agent } = await createApp(db, config);
+  t.after(() => agent.stop());
+  const { token } = await auth.session();
+  const response = await app.request("/api/browsers", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://example.org/" }),
+  });
+  assert.equal(response.status, 502);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "browser create",
+    ),
+    "REST browser create should log worker failures",
+  );
+});
+
 test("failed creation remains app-visible and can be retried with its original UUID", async (t) => {
   let failing = true;
   let requestedId: unknown;

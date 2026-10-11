@@ -14,7 +14,7 @@ import {
 import { ActionService } from "./actions.ts";
 import { agentConfigured, makeRuntime } from "./agent.ts";
 import { createAuth } from "./auth.ts";
-import { BrowserService } from "./browser.ts";
+import { BrowserService, withBrowserApiLog } from "./browser.ts";
 import { ComputerService, type DockerRunner } from "./computer.ts";
 import { computerRoutes } from "./computer-routes.ts";
 import { assertApiDeploymentConfig, type Config } from "./config.ts";
@@ -290,37 +290,67 @@ export async function createApp(
   });
   app.post("/api/browsers", async (c) => {
     const body = z.object({ url: z.url().max(4096) }).parse(await c.req.json());
-    return c.json(await browser.create(c.get("owner"), body.url), 201);
+    return c.json(
+      await withBrowserApiLog("browser create", () => browser.create(c.get("owner"), body.url)),
+      201,
+    );
   });
   app.get("/api/browsers/:id", async (c) => {
     const owner = c.get("owner");
-    return c.json(browser.decorate(owner, await browser.get(owner, c.req.param("id"))));
+    return c.json(
+      browser.decorate(
+        owner,
+        await withBrowserApiLog("browser get", () => browser.get(owner, c.req.param("id"))),
+      ),
+    );
   });
   app.post("/api/browsers/:id/navigate", async (c) => {
     const body = z.object({ url: z.url().max(4096) }).parse(await c.req.json());
-    return c.json(await browser.navigate(c.get("owner"), c.req.param("id"), body.url));
+    return c.json(
+      await withBrowserApiLog("browser navigate", () =>
+        browser.navigate(c.get("owner"), c.req.param("id"), body.url),
+      ),
+    );
   });
   app.post("/api/browsers/:id/close", async (c) =>
-    c.json(await browser.close(c.get("owner"), c.req.param("id"))),
+    c.json(
+      await withBrowserApiLog("browser close", () =>
+        browser.close(c.get("owner"), c.req.param("id")),
+      ),
+    ),
   );
   app.get("/api/browsers/:id/read", async (c) =>
-    c.json(await browser.read(c.get("owner"), c.req.param("id"))),
+    c.json(
+      await withBrowserApiLog("browser read", () =>
+        browser.read(c.get("owner"), c.req.param("id")),
+      ),
+    ),
   );
   app.post("/api/browsers/:id/reopen", async (c) => {
     const raw = await c.req.text();
     const body = z.object({ url: z.url().max(4096).optional() }).parse(raw ? JSON.parse(raw) : {});
-    return c.json(await browser.reopen(c.get("owner"), c.req.param("id"), body.url));
+    return c.json(
+      await withBrowserApiLog("browser reopen", () =>
+        browser.reopen(c.get("owner"), c.req.param("id"), body.url),
+      ),
+    );
   });
   app.post("/api/browsers/:id/import-downloads", async (c) =>
-    c.json(await browser.imports(c.get("owner"), c.req.param("id"))),
+    c.json(
+      await withBrowserApiLog("browser import downloads", () =>
+        browser.imports(c.get("owner"), c.req.param("id")),
+      ),
+    ),
   );
   app.get("/api/browsers/:id/preview", async (c) => {
-    const response = await browser.preview(c.get("owner"), c.req.param("id"));
+    const response = await withBrowserApiLog("browser preview", () =>
+      browser.preview(c.get("owner"), c.req.param("id")),
+    );
     c.header("Content-Type", "image/png");
     return c.body(await response.arrayBuffer());
   });
   app.get("/api/browsers/:id/console", async (c) => {
-    await browser.get(c.get("owner"), c.req.param("id"));
+    await withBrowserApiLog("browser console", () => browser.get(c.get("owner"), c.req.param("id")));
     c.header(
       "Content-Security-Policy",
       "default-src 'self'; img-src 'self' blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
@@ -328,7 +358,10 @@ export async function createApp(
     return c.html(browser.console(c.get("owner"), c.req.param("id")));
   });
   app.post("/api/browsers/:id/console", async (c) => {
-    await browser.input(c.get("owner"), c.req.param("id"), await c.req.json());
+    const body = await c.req.json();
+    await withBrowserApiLog("browser console input", () =>
+      browser.input(c.get("owner"), c.req.param("id"), body),
+    );
     return c.json({ ok: true });
   });
   app.all("/api/copilotkit/*", async (c) => {

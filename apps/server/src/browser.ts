@@ -7,6 +7,7 @@ import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { AppError } from "./errors.ts";
 import type { Files } from "./files.ts";
+import { backgroundFailure } from "./log.ts";
 
 const sessionSchema = z.object({
   id: z.string(),
@@ -291,5 +292,22 @@ export class BrowserService {
   }
   console(owner: string, id: string) {
     return browserConsole(this.auth.sign(owner, `/api/browsers/${id}/preview`));
+  }
+}
+
+export function logBrowserApiFailure(phase: string, error: unknown) {
+  if (error instanceof AppError) {
+    if (error.status === 404 || error.status === 422 || error.status === 409) return;
+    if (error.status === 503 && error.message.includes("not configured")) return;
+  }
+  backgroundFailure(phase, error);
+}
+
+export async function withBrowserApiLog<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    logBrowserApiFailure(phase, error);
+    throw error;
   }
 }
