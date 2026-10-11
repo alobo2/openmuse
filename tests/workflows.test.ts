@@ -431,7 +431,8 @@ test("milestone-linked outcomes preserve manual progress and legacy goal tasks s
   assert.equal(milestones?.filter((m) => m.id === legacy.id && m.done).length, 1);
 });
 
-test("failed, cancelled and review-blocked tasks do not complete milestones", async () => {
+test("failed, cancelled and review-blocked tasks do not complete milestones", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
   const goal = await server.agent.createGoal(owner, {
     title: "Documents",
     milestones: ["Return form"],
@@ -445,6 +446,16 @@ test("failed, cancelled and review-blocked tasks do not complete milestones", as
   });
   await server.agent.worker.tick();
   assert.equal((await server.agent.getTask(owner, failed.id)).status, "failed");
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "task execution",
+    ),
+    "worker should log structured task failures before marking the task failed",
+  );
   const cancelled = await server.agent.createTask(owner, { ...link, prompt: "Cancelled" });
   await server.agent.control(owner, cancelled.id, "cancel");
   const mail = (await server.workspace.snapshot(owner)).mail.find((m) => m.attachments.length);

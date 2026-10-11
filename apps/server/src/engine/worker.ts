@@ -220,6 +220,8 @@ export class TaskWorker {
         );
       } else {
         const detail = error instanceof Error ? error.message : "Task execution failed";
+        if (task.kind !== "agent" && task.kind !== "plan")
+          backgroundFailure("task execution", error);
         await event("error", "Task needs attention", detail).catch((error) =>
           backgroundFailure("record task error", error),
         );
