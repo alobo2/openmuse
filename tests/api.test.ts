@@ -357,6 +357,109 @@ test("chat create_goal logs store failures before returning a tool error", async
   );
 });
 
+test("chat agent_status logs store failures before returning a tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const failure = "Workspace snapshot unavailable";
+  await modelFixture(t, (index) =>
+    index === 0 ? { name: "agent_status", arguments: {} } : undefined,
+  );
+  const browser = await browserFixture(t, () => ({ data: { ok: true } }));
+  const modelConfig = {
+    ...browser.config,
+    agentBackend: "model" as const,
+    model: "openai/fixture",
+  };
+  const { agent: modelAgent } = await createApp(browser.db, modelConfig);
+  t.after(() => modelAgent.stop());
+  const original = modelAgent.snapshot.bind(modelAgent);
+  modelAgent.snapshot = async () => {
+    throw new Error(failure);
+  };
+  t.after(() => {
+    modelAgent.snapshot = original;
+  });
+  const conversation = new ConversationAgent(modelConfig, modelAgent, "local-user");
+  const events = await lastValueFrom(
+    conversation
+      .run({
+        threadId: "agent-status-error",
+        runId: "agent-status-error-run",
+        messages: [{ id: "agent-status-error-msg", role: "user", content: "What is going on?" }],
+        tools: [],
+        context: [],
+        state: {},
+      })
+      .pipe(toArray()),
+  );
+  const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT);
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  assert.deepEqual(JSON.parse(result.content), { error: failure });
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "chat agent status",
+    ),
+    "chat agent status should log workspace snapshot failures",
+  );
+});
+
+test("chat remember_fact logs store failures before returning a tool error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const failure = "Memory store unavailable";
+  await modelFixture(t, (index) =>
+    index === 0
+      ? { name: "remember_fact", arguments: { text: "I prefer morning meetings" } }
+      : undefined,
+  );
+  const browser = await browserFixture(t, () => ({ data: { ok: true } }));
+  const modelConfig = {
+    ...browser.config,
+    agentBackend: "model" as const,
+    model: "openai/fixture",
+  };
+  const { agent: modelAgent } = await createApp(browser.db, modelConfig);
+  t.after(() => modelAgent.stop());
+  const original = modelAgent.db.insertIfAbsent.bind(modelAgent.db);
+  modelAgent.db.insertIfAbsent = async (...args: Parameters<Store["insertIfAbsent"]>) => {
+    if (args[1] === "memories") throw new Error(failure);
+    return original(...args);
+  };
+  t.after(() => {
+    modelAgent.db.insertIfAbsent = original;
+  });
+  const conversation = new ConversationAgent(modelConfig, modelAgent, "local-user");
+  const events = await lastValueFrom(
+    conversation
+      .run({
+        threadId: "remember-fact-error",
+        runId: "remember-fact-error-run",
+        messages: [
+          { id: "remember-fact-error-msg", role: "user", content: "Remember that preference" },
+        ],
+        tools: [],
+        context: [],
+        state: {},
+      })
+      .pipe(toArray()),
+  );
+  const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT);
+  assert.ok(result && result.type === EventType.TOOL_CALL_RESULT);
+  assert.deepEqual(JSON.parse(result.content), { error: failure });
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "chat remember fact",
+    ),
+    "chat remember fact should log memory persistence failures",
+  );
+});
+
 test("chat watch_page logs store failures before returning a tool error", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
   const failure = "Monitor store unavailable";
