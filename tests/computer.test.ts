@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
-import { ComputerService, type DockerResult } from "../apps/server/src/computer.ts";
+import { ComputerService, type DockerResult, type DockerRunner } from "../apps/server/src/computer.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import { config, fixture, ok, sandbox } from "./helpers/computer.ts";
 
@@ -398,4 +398,31 @@ test("a command marked dead after the lease check is never executed", async () =
   } finally {
     db.get = originalGet;
   }
+});
+
+test("computer snapshot logs inspection failures while returning error status", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const f = fixture();
+  const runner: DockerRunner = async (args, opts) => {
+    if (args[0] === "container" && args[1] === "inspect") throw new Error("docker unreachable");
+    return f.runner(args, opts);
+  };
+  const service = new ComputerService(db, config, runner);
+  const snapshot = await service.snapshot("owner");
+  assert.equal(snapshot.status, "error");
+  assert.match(
+    snapshot.message ?? "",
+    /Computer inspection failed/,
+    "client-facing snapshot should stay generic for unexpected inspection errors",
+  );
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase ===
+          "computer snapshot",
+    ),
+    "inspection failures should be logged even when the snapshot returns error status",
+  );
 });

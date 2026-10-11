@@ -22,6 +22,7 @@ import {
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { AppError } from "./errors.ts";
+import { backgroundFailure } from "./log.ts";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 export const computerOutputLimit = 128 * 1024;
@@ -331,6 +332,7 @@ export class ComputerService {
     try {
       return { ...base, status: (await this.isRunning(owner)) ? "running" : "stopped" };
     } catch (error) {
+      backgroundFailure("computer snapshot", error);
       return {
         ...base,
         status: "error",
