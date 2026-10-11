@@ -6,13 +6,34 @@ import {
   computerPathSchema,
   computerWriteSchema,
 } from "./computer.ts";
+import { AppError } from "./errors.ts";
 import type { Files } from "./files.ts";
+import { backgroundFailure } from "./log.ts";
+
+function logComputerApiFailure(phase: string, error: unknown) {
+  if (error instanceof AppError && error.status === 409) return;
+  backgroundFailure(phase, error);
+}
 
 export function computerRoutes(computer: ComputerService, files: Files) {
   const app = new Hono<{ Variables: { owner: string } }>();
   app.get("/", async (c) => c.json(await computer.snapshot(c.get("owner"))));
-  app.post("/start", async (c) => c.json(await computer.start(c.get("owner"))));
-  app.post("/stop", async (c) => c.json(await computer.stop(c.get("owner"))));
+  app.post("/start", async (c) => {
+    try {
+      return c.json(await computer.start(c.get("owner")));
+    } catch (error) {
+      logComputerApiFailure("computer start", error);
+      throw error;
+    }
+  });
+  app.post("/stop", async (c) => {
+    try {
+      return c.json(await computer.stop(c.get("owner")));
+    } catch (error) {
+      logComputerApiFailure("computer stop", error);
+      throw error;
+    }
+  });
   // Live desktop stream (e2b-desktop provider). The URL carries a per-stream VNC
   // password, never the E2B API key; repeated calls return the same stream.
   app.get("/desktop", async (c) => c.json(await computer.desktopUrl(c.get("owner"))));
