@@ -687,35 +687,41 @@ export class AgentService {
       if (idea?.status !== "accepted") return idea;
     }
     if (idea.taskId && (await this.db.get(owner, "tasks", idea.taskId))) return idea;
-    const goalId =
-      typeof idea.input.goalId === "string"
-        ? idea.input.goalId
-        : (
-            await this.createGoal(
-              owner,
-              { title: idea.title, description: idea.reason },
-              hash(`idea-goal:${id}`),
-            )
-          ).id;
-    const task = await this.createTask(
-      owner,
-      {
-        title: idea.title,
-        prompt: idea.prompt,
-        kind: idea.kind,
-        input: idea.input,
-        goalId,
-      },
-      `idea:${id}`,
-    );
-    await this.db.compareAndSwap(
-      owner,
-      "ideas",
-      id,
-      { status: "new" },
-      { status: "accepted", taskId: task.id },
-    );
-    return this.db.get<Idea>(owner, "ideas", id);
+    try {
+      const goalId =
+        typeof idea.input.goalId === "string"
+          ? idea.input.goalId
+          : (
+              await this.createGoal(
+                owner,
+                { title: idea.title, description: idea.reason },
+                hash(`idea-goal:${id}`),
+              )
+            ).id;
+      const task = await this.createTask(
+        owner,
+        {
+          title: idea.title,
+          prompt: idea.prompt,
+          kind: idea.kind,
+          input: idea.input,
+          goalId,
+        },
+        `idea:${id}`,
+      );
+      await this.db.compareAndSwap(
+        owner,
+        "ideas",
+        id,
+        { status: "new" },
+        { status: "accepted", taskId: task.id },
+      );
+      return this.db.get<Idea>(owner, "ideas", id);
+    } catch (error) {
+      if (!(error instanceof AppError) && !(error instanceof z.ZodError))
+        backgroundFailure("accept idea", error);
+      throw error;
+    }
   }
   async notify(owner: string, title: string, body: string, taskId?: string, key?: string) {
     const value: AgentNotification = {

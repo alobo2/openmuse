@@ -280,6 +280,41 @@ test("accepting an idea without a goal still creates one goal and task", async (
   assert.equal(tasks[0].goalId, goals[0].id);
 });
 
+test("idea acceptance logs structured errors when task creation fails", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const ideaOwner = "accept-fail-user";
+  const idea: Idea = {
+    id: "accept-fail-plan",
+    title: "Follow up on the trip",
+    reason: "Keep planning moving",
+    prompt: "Follow up on the trip",
+    kind: "plan",
+    input: {},
+    evidence: [],
+    status: "new",
+    createdAt: new Date().toISOString(),
+  };
+  await db.put(ideaOwner, "ideas", idea);
+  const original = server.agent.createTask.bind(server.agent);
+  server.agent.createTask = async () => {
+    throw new Error("database write failed");
+  };
+  await assert.rejects(
+    () => server.agent.decideIdea(ideaOwner, idea.id, "accept"),
+    /database write failed/,
+  );
+  server.agent.createTask = original;
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "accept idea",
+    ),
+    "accepting an idea should log store failures before surfacing the error",
+  );
+});
+
 test("cancelling a task denies its pending action", async () => {
   const { task, action } = await documentTask();
   await server.agent.control(owner, task.id, "cancel");
