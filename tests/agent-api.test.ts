@@ -232,6 +232,26 @@ test("memories can be edited and forgotten while identity changes persist", asyn
   assert.ok(await db.get("other-user", "memories", "private-memory"));
 });
 
+test("ideas refresh API logs provider failures while returning the client error", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const snapshot = server.workspace.snapshot.bind(server.workspace);
+  server.workspace.snapshot = async () => {
+    throw new Error("mailbox snapshot failed");
+  };
+  const response = await request("/ideas/refresh", {});
+  server.workspace.snapshot = snapshot;
+  assert.equal(response.status, 502);
+  assert.ok(
+    logged.mock.calls.some(
+      (call) =>
+        typeof call.arguments[0] === "object" &&
+        call.arguments[0] !== null &&
+        (call.arguments[0] as { context?: { phase?: string } }).context?.phase === "refresh ideas",
+    ),
+    "manual ideas refresh should log provider failures",
+  );
+});
+
 test("idea dismissal survives refresh and concurrent acceptance creates one goal and task", async () => {
   const ideas = await read<Idea[]>("/ideas/refresh", {});
   assert.ok(ideas.length >= 2);

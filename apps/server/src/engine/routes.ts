@@ -8,7 +8,25 @@ import type {
 } from "../../../../packages/domain/src/agent.ts";
 import { createTaskSchema } from "../../../../packages/domain/src/agent.ts";
 import { AppError } from "../errors.ts";
+import { backgroundFailure } from "../log.ts";
 import type { AgentService } from "./service.ts";
+
+function logAgentApiFailure(phase: string, error: unknown) {
+  if (error instanceof z.ZodError) return;
+  if (error instanceof AppError) {
+    if (error.status === 404 || error.status === 409 || error.status === 422) return;
+  }
+  backgroundFailure(phase, error);
+}
+
+async function withAgentApiLog<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    logAgentApiFailure(phase, error);
+    throw error;
+  }
+}
 
 const text = z.string().trim().min(1).max(4000);
 const memorySchema = z.object({ text, source: z.string().trim().min(1).max(200).optional() });
@@ -84,7 +102,9 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
       .parse(await c.req.json());
     return c.json(await service.controlMonitor(c.get("owner"), c.req.param("id"), action));
   });
-  app.post("/ideas/refresh", async (c) => c.json(await service.refreshIdeas(c.get("owner"))));
+  app.post("/ideas/refresh", async (c) =>
+    c.json(await withAgentApiLog("refresh ideas", () => service.refreshIdeas(c.get("owner")))),
+  );
   app.post("/ideas/:id", async (c) => {
     const body = z
       .object({
